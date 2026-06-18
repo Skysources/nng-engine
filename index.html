@@ -115,21 +115,32 @@
 <div id="popupHost"></div>
 <div id="loginHost"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 /* ======================= CONFIG ======================= */
-const DB = 'https://nng-b5b12-default-rtdb.europe-west1.firebasedatabase.app';
+const firebaseConfig = {
+  apiKey: "AIzaSyD5j9RfKTuCrx-pihpkx2FGZxcX6bpOJlo",
+  authDomain: "nng-b5b12.firebaseapp.com",
+  databaseURL: "https://nng-b5b12-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "nng-b5b12",
+  storageBucket: "nng-b5b12.firebasestorage.app",
+  messagingSenderId: "1021566662246",
+  appId: "1:1021566662246:web:2bab67958fd87e94f79fa7",
+  measurementId: "G-NJCSDZ4DGZ"
+};
+firebase.initializeApp(firebaseConfig);
+const fbAuth = firebase.auth();
+const EMAIL_SUFFIX = '@nng.local';           // kullanıcı adı -> e-posta eşlemesi
+
+const DB = firebaseConfig.databaseURL;
 const FB = DB + '/turbines.json';            // ortak veri yolu
 const STORE = 'nng_turbines_v1';             // çevrimdışı yedek (yerel)
-const SESSION = 'nng_user';
 
-const USERS = {
-  admin:   {password:'nng3366', role:'admin'},
-  teknik:  {password:'teknik',  role:'teknik'},
-  misafir: {password:'misafir', role:'misafir'},
-};
-const ROLE_LABEL = {admin:'Yönetici', teknik:'Teknik', misafir:'Misafir'};
 let currentUser = null;
-function canEdit(){ return !!(currentUser && (currentUser.role==='admin' || currentUser.role==='teknik')); }
+function canEdit(){ return !!currentUser; }
+async function authToken(){ try{ const u=fbAuth.currentUser; return u ? await u.getIdToken() : null; }catch(e){ return null; } }
+function fbUrl(t){ return FB + (t ? ('?auth='+encodeURIComponent(t)) : ''); }
 
 const STATUSES = {
   'ready':          {label:'Kullanıma Uygun',        color:'#16a34a', dark:'#15803d', hatch:false},
@@ -196,7 +207,8 @@ function setSync(s){
 async function fbLoad(){
   setSync('sync');
   try{
-    const r=await fetch(FB,{cache:'no-store'});
+    const t=await authToken();
+    const r=await fetch(fbUrl(t),{cache:'no-store'});
     if(!r.ok){ setSync('err'); return false; }
     const d=await r.json();
     if(d && Array.isArray(d.motors) && d.motors.length){ _ts=d.ts||0; state.engines=d.motors; cache(state.engines); setSync('ok'); return true; }
@@ -208,7 +220,8 @@ async function fbSave(){
   const ts=Date.now(); _ts=ts; _saving=true; setSync('saving');
   cache(state.engines);
   try{
-    const r=await fetch(FB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({motors:state.engines, ts})});
+    const t=await authToken();
+    const r=await fetch(fbUrl(t),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({motors:state.engines, ts})});
     setSync(r.ok?'ok':'err');
   }catch(e){ setSync('err'); }
   finally{ _saving=false; }
@@ -217,8 +230,10 @@ function startPoll(){
   if(_poll) return;
   _poll=setInterval(async()=>{
     if(_saving || state.modalOpen || state.confirmId || state.popup || state.photoSrc) return;
+    if(!fbAuth.currentUser) return;
     try{
-      const r=await fetch(FB,{cache:'no-store'}); if(!r.ok){ setSync('err'); return; }
+      const t=await authToken();
+      const r=await fetch(fbUrl(t),{cache:'no-store'}); if(!r.ok){ setSync('err'); return; }
       const d=await r.json();
       setSync('ok');
       if(d && d.ts && d.ts>_ts && Array.isArray(d.motors)){ _ts=d.ts; state.engines=d.motors; cache(state.engines); render(); }
@@ -681,7 +696,7 @@ function showLogin(err){
       </div>
       <div style="font-size:13px;color:#8a929c;margin-bottom:22px">Türbin Yönetim Sistemi · Giriş</div>
       <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8a929c;margin-bottom:6px">Kullanıcı adı</label>
-      <input id="luser" autocomplete="username" placeholder="admin / teknik / misafir" style="width:100%;padding:11px 13px;border:1px solid #d8dde3;border-radius:10px;font-size:14px;outline:none;margin-bottom:14px">
+      <input id="luser" autocomplete="username" placeholder="Kullanıcı adı" style="width:100%;padding:11px 13px;border:1px solid #d8dde3;border-radius:10px;font-size:14px;outline:none;margin-bottom:14px">
       <label style="display:block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8a929c;margin-bottom:6px">Şifre</label>
       <input id="lpass" type="password" autocomplete="current-password" placeholder="••••••••" style="width:100%;padding:11px 13px;border:1px solid #d8dde3;border-radius:10px;font-size:14px;outline:none;margin-bottom:6px">
       <div id="lerr" style="min-height:18px;font-size:12.5px;color:#dc2626;margin-bottom:10px">${err?esc(err):''}</div>
@@ -695,22 +710,21 @@ function showLogin(err){
 }
 function doLogin(username,password){
   const u=(username||'').trim().toLowerCase();
-  const rec=USERS[u];
-  if(!rec || rec.password!==password){ showLogin('Kullanıcı adı veya şifre hatalı.'); return; }
-  currentUser={username:u, role:rec.role};
-  try{ sessionStorage.setItem(SESSION, JSON.stringify(currentUser)); }catch(e){}
-  $('loginHost').innerHTML='';
-  afterLogin();
+  if(!u || !password){ showLogin('Kullanıcı adı ve şifre girin.'); return; }
+  const email = u.includes('@') ? u : (u+EMAIL_SUFFIX);
+  const btn=$('lbtn'); if(btn){ btn.disabled=true; btn.textContent='Giriş yapılıyor…'; }
+  fbAuth.signInWithEmailAndPassword(email, password)
+    .catch(err=>{
+      let msg='Kullanıcı adı veya şifre hatalı.';
+      if(err && err.code==='auth/network-request-failed') msg='İnternet bağlantısı yok.';
+      if(err && err.code==='auth/too-many-requests') msg='Çok fazla deneme. Bir süre sonra tekrar deneyin.';
+      showLogin(msg);
+    });
 }
-function logout(){
-  currentUser=null;
-  try{ sessionStorage.removeItem(SESSION); }catch(e){}
-  if(_poll){ clearInterval(_poll); _poll=null; }
-  showLogin();
-}
+function logout(){ fbAuth.signOut(); }
 function afterLogin(){
   $('userBox').style.display='flex';
-  $('userName').textContent=currentUser.username+' · '+(ROLE_LABEL[currentUser.role]||currentUser.role);
+  $('userName').textContent=currentUser.username;
   initData();
 }
 
@@ -727,12 +741,20 @@ $('clearBtn').onclick=clearFilters;
 $('logoutBtn').onclick=logout;
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(state.photoSrc) closePhoto(); else if(state.popup) closePopup(); else if(state.confirmId) cancelDelete(); else if(state.modalOpen) closeModal(); } });
 
-(function boot(){
-  let s=null;
-  try{ s=JSON.parse(sessionStorage.getItem(SESSION)||'null'); }catch(e){}
-  if(s && s.username && USERS[s.username]){ currentUser=s; afterLogin(); }
-  else { showLogin(); }
-})();
+fbAuth.onAuthStateChanged(user=>{
+  if(user){
+    const uname=(user.email||'').split('@')[0]||'nngenergy';
+    currentUser={username:uname, email:user.email};
+    $('loginHost').innerHTML='';
+    afterLogin();
+  } else {
+    currentUser=null;
+    if(_poll){ clearInterval(_poll); _poll=null; }
+    state.engines=[]; _ts=0;
+    try{ localStorage.removeItem(STORE); }catch(e){}
+    showLogin();
+  }
+});
 </script>
 </body>
 </html>
