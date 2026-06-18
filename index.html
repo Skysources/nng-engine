@@ -79,6 +79,7 @@
         </div>
         <select id="fLocation" style="padding:10px 12px;border:1px solid #d8dde3;border-radius:10px;font-size:13px;background:#fff;color:#46505c;cursor:pointer;outline:none;min-width:150px"></select>
         <select id="fType" style="padding:10px 12px;border:1px solid #d8dde3;border-radius:10px;font-size:13px;background:#fff;color:#46505c;cursor:pointer;outline:none;min-width:140px"></select>
+        <select id="fFuel" style="padding:10px 12px;border:1px solid #d8dde3;border-radius:10px;font-size:13px;background:#fff;color:#46505c;cursor:pointer;outline:none;min-width:140px"></select>
         <div style="display:flex;background:#e8ebee;border-radius:10px;padding:3px;gap:2px">
           <button id="viewCard" style="display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:8px;border:none;font-size:12.5px;font-weight:600;cursor:pointer">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.4"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.2" stroke="currentColor" stroke-width="1.4"/></svg>
@@ -168,7 +169,7 @@ function seed(){
   return raw.map((o,i)=>({id:'seed-'+i, ...o}));
 }
 
-let state = {engines:[], q:'', fStatus:'all', fLocation:'all', fType:'all', view:'card', sortKey:'', sortDir:'asc', modalOpen:false, editId:null, form:blank(), confirmId:null};
+let state = {engines:[], q:'', fStatus:'all', fLocation:'all', fType:'all', fFuel:'all', view:'card', sortKey:'', sortDir:'asc', modalOpen:false, editId:null, form:blank(), confirmId:null};
 let _saving=false, _ts=0, _poll=null;
 
 const $ = id => document.getElementById(id);
@@ -252,7 +253,7 @@ function saveForm(){
 function askDelete(id){ if(!canEdit())return; setState({confirmId:id}); }
 function cancelDelete(){ setState({confirmId:null}); }
 function doDelete(){ const arr=state.engines.filter(x=>x.id!==state.confirmId); setState({engines:arr, confirmId:null}); fbSave(); }
-function clearFilters(){ $('q').value=''; setState({q:'', fStatus:'all', fLocation:'all', fType:'all'}); }
+function clearFilters(){ $('q').value=''; setState({q:'', fStatus:'all', fLocation:'all', fType:'all', fFuel:'all'}); }
 function setSort(key){ setState(state.sortKey===key?{sortDir:state.sortDir==='asc'?'desc':'asc'}:{sortKey:key, sortDir:'asc'}); }
 
 function exportExcel(){
@@ -274,6 +275,7 @@ function compute(){
     if(state.fStatus!=='all' && e.status!==state.fStatus) return false;
     if(state.fLocation!=='all' && locGroup(e.location)!==state.fLocation) return false;
     if(state.fType!=='all' && e.type!==state.fType) return false;
+    if(state.fFuel!=='all' && (e.fuel||'').trim()!==state.fFuel) return false;
     if(q){
       const stLabel=(S[e.status]||S.unknown).label;
       const blob=[e.from,e.type,e.serial,e.idNo,e.injector,e.project,e.fuel,e.version,e.power,e.operation,e.location,e.note,stLabel].join(' ').toLowerCase();
@@ -316,6 +318,9 @@ function render(){
   const typeArr=Array.from(new Set(all.map(e=>e.type).filter(v=>has(v)))).sort((a,b)=>a.localeCompare(b,'tr'));
   $('fType').innerHTML='<option value="all">Tüm Tipler</option>'+typeArr.map(t=>`<option value="${esc(t)}">${esc(t)} (${all.filter(e=>e.type===t).length})</option>`).join('');
   $('fType').value=state.fType;
+  const fuelArr=Array.from(new Set(all.map(e=>(e.fuel||'').trim()).filter(v=>v))).sort((a,b)=>a.localeCompare(b,'tr'));
+  $('fFuel').innerHTML='<option value="all">Tüm Yakıtlar</option>'+fuelArr.map(t=>`<option value="${esc(t)}">${esc(t)} (${all.filter(e=>(e.fuel||'').trim()===t).length})</option>`).join('');
+  $('fFuel').value=state.fFuel;
 
   let chips=`<button data-st="all" class="chip" style="display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;${state.fStatus==='all'?'background:#16202e;border:1px solid #16202e;color:#fff':'background:#fff;border:1px solid #e1e5ea;color:#46505c'}">Tümü <span style="opacity:.55;font-weight:500">${all.length}</span></button>`;
   chips+=Object.keys(S).map(k=>{
@@ -326,7 +331,7 @@ function render(){
   $('chips').innerHTML=chips;
   $('chips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ const k=b.dataset.st; setState({fStatus:(k==='all')?'all':(state.fStatus===k?'all':k)}); });
 
-  const hasFilters=!!(state.q.trim()||state.fStatus!=='all'||state.fLocation!=='all'||state.fType!=='all');
+  const hasFilters=!!(state.q.trim()||state.fStatus!=='all'||state.fLocation!=='all'||state.fType!=='all'||state.fFuel!=='all');
   $('clearBtn').style.display=hasFilters?'inline-flex':'none';
 
   const C=$('content');
@@ -574,6 +579,7 @@ function afterLogin(){
 $('q').addEventListener('input',e=>{ state.q=e.target.value; render(); });
 $('fLocation').addEventListener('change',e=>setState({fLocation:e.target.value}));
 $('fType').addEventListener('change',e=>setState({fType:e.target.value}));
+$('fFuel').addEventListener('change',e=>setState({fFuel:e.target.value}));
 $('viewCard').onclick=()=>setState({view:'card'});
 $('viewTable').onclick=()=>setState({view:'table'});
 $('addBtn').onclick=openAdd;
