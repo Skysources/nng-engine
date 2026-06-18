@@ -112,6 +112,7 @@
 <div id="modalHost"></div>
 <div id="confirmHost"></div>
 <div id="photoHost"></div>
+<div id="popupHost"></div>
 <div id="loginHost"></div>
 
 <script>
@@ -140,7 +141,7 @@ const STATUSES = {
   'not-usable':     {label:'Kullanıma Uygun Değil',  color:'#dc2626', dark:'#b91c1c', hatch:false},
   'unknown':        {label:'Belirsiz',               color:'#94a3b8', dark:'#64748b', hatch:false},
 };
-const blank = () => ({from:'',type:'',serial:'',idNo:'',injector:'',project:'',fuel:'CNV',version:'',power:'',operation:'',actuator:'',injLiquid:'',injGas:'',injectorPhoto:'',enginePhoto:'',boroscope:'',rehab:'',location:'',note:'',status:'ready'});
+const blank = () => ({from:'',type:'',serial:'',idNo:'',injector:'',project:'',fuel:'CNV',version:'',power:'',operation:'',actuator:'',injLiquid:'',injGas:'',injAir:'',injectorPhoto:'',enginePhoto:'',plate:'',boroscope:'',rehab:'',location:'',note:'',status:'ready'});
 
 function seed(){
   const raw = [
@@ -170,7 +171,7 @@ function seed(){
   return raw.map((o,i)=>({id:'seed-'+i, ...o}));
 }
 
-let state = {engines:[], q:'', fStatus:'all', fLocation:'all', fType:'all', fFuel:'all', view:'card', sortKey:'', sortDir:'asc', modalOpen:false, editId:null, form:blank(), confirmId:null, photoSrc:null};
+let state = {engines:[], q:'', fStatus:'all', fLocation:'all', fType:'all', fFuel:'all', view:'card', sortKey:'', sortDir:'asc', modalOpen:false, editId:null, form:blank(), confirmId:null, photoSrc:null, popup:null};
 let _saving=false, _ts=0, _poll=null;
 
 const $ = id => document.getElementById(id);
@@ -215,7 +216,7 @@ async function fbSave(){
 function startPoll(){
   if(_poll) return;
   _poll=setInterval(async()=>{
-    if(_saving || state.modalOpen || state.confirmId) return;
+    if(_saving || state.modalOpen || state.confirmId || state.popup || state.photoSrc) return;
     try{
       const r=await fetch(FB,{cache:'no-store'}); if(!r.ok){ setSync('err'); return; }
       const d=await r.json();
@@ -258,7 +259,7 @@ function clearFilters(){ $('q').value=''; setState({q:'', fStatus:'all', fLocati
 function setSort(key){ setState(state.sortKey===key?{sortDir:state.sortDir==='asc'?'desc':'asc'}:{sortKey:key, sortDir:'asc'}); }
 
 function exportExcel(){
-  const cols=[['Status','__st'],['From','from'],['Type','type'],['Serial Number','serial'],['ID Number','idNo'],['Injector SN','injector'],['Project No','project'],['Actuator','actuator'],['Fuel Type','fuel'],['Sıvı Hat','injLiquid'],['Gaz Hat','injGas'],['Version','version'],['Power (kWe)','power'],['Operation','operation'],['Boroscope','boroscope'],['Rehabilitation','rehab'],['Location','location'],['Note','note']];
+  const cols=[['Status','__st'],['From','from'],['Type','type'],['Serial Number','serial'],['ID Number','idNo'],['Injector SN','injector'],['Project No','project'],['Actuator','actuator'],['Fuel Type','fuel'],['Sıvı Hat','injLiquid'],['Gaz Hat','injGas'],['Hava Hat','injAir'],['Version','version'],['Power (kWe)','power'],['Operation','operation'],['Boroscope','boroscope'],['Rehabilitation','rehab'],['Location','location'],['Note','note']];
   let h='<table border="1"><tr>'+cols.map(c=>'<th>'+esc(c[0])+'</th>').join('')+'</tr>';
   state.engines.forEach(e=>{ h+='<tr>'+cols.map(c=>'<td>'+esc(c[1]==='__st'?(STATUSES[e.status]||STATUSES.unknown).label:e[c[1]])+'</td>').join('')+'</tr>'; });
   h+='</table>';
@@ -351,10 +352,49 @@ function render(){
   C.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>setSort(b.dataset.sort));
   C.querySelectorAll('[data-photoeng]').forEach(b=>b.onclick=()=>{ const x=state.engines.find(y=>y.id===b.dataset.photoeng); if(x&&x.enginePhoto) openPhoto(x.enginePhoto); });
   C.querySelectorAll('[data-photoinj]').forEach(b=>b.onclick=()=>{ const x=state.engines.find(y=>y.id===b.dataset.photoinj); if(x&&x.injectorPhoto) openPhoto(x.injectorPhoto); });
+  C.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>{ const x=state.engines.find(y=>y.id===b.dataset.note); if(x) openNote(x); });
+  C.querySelectorAll('[data-plate]').forEach(b=>b.onclick=()=>{ const x=state.engines.find(y=>y.id===b.dataset.plate); if(x) openPlate(x); });
 
   renderModal();
   renderConfirm();
   renderLightbox();
+  renderPopup();
+}
+
+function openNote(e){ state.popup={kind:'note', title:e.from||'Motor', text:has(e.note)?e.note:'Bu motor için not girilmemiş.'}; renderPopup(); }
+function openPlate(e){ state.popup={kind:'plate', title:e.from||'Motor', img:e.plate, empty:!has(e.plate)}; renderPopup(); }
+function closePopup(){ state.popup=null; renderPopup(); }
+function renderPopup(){
+  const host=$('popupHost');
+  const p=state.popup;
+  if(!p){ host.innerHTML=''; return; }
+  const noteIcon='<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 2.5h7L13 5.5V13a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13V2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 7.5h5M5.5 10h3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const plateIcon='<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 7h7M4.5 9.5h4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const isNote=p.kind==='note';
+  let bodyHtml;
+  if(isNote){
+    bodyHtml=`<div style="font-size:13.5px;line-height:1.6;color:#2b3540;white-space:pre-wrap">${esc(p.text)}</div>`;
+  } else if(p.empty){
+    bodyHtml=`<div style="text-align:center;padding:30px 10px;color:#9aa3ad"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" style="margin-bottom:10px"><rect x="3" y="6" width="18" height="13" rx="2" stroke="#c4ccd4" stroke-width="1.6"/><circle cx="12" cy="12.5" r="3" stroke="#c4ccd4" stroke-width="1.6"/></svg><div style="font-size:13.5px;font-weight:600;color:#6b7682">Plate görseli yüklenmemiş</div><div style="font-size:12px;margin-top:4px">Düzenle'den plate fotoğrafı ekleyebilirsiniz.</div></div>`;
+  } else {
+    bodyHtml=`<img src="${esc(p.img)}" alt="Plate" style="max-width:100%;max-height:64vh;border-radius:10px;display:block;margin:0 auto">`;
+  }
+  host.innerHTML=`<div id="puovl" style="position:fixed;inset:0;background:rgba(22,32,46,.42);backdrop-filter:blur(2px);z-index:115;display:flex;align-items:center;justify-content:center;padding:24px;animation:fIn .15s ease">
+    <div style="background:#fff;border-radius:14px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(20,30,45,.3);animation:mIn .2s cubic-bezier(.2,.8,.3,1);overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid #eef0f2">
+        <div style="display:flex;align-items:center;gap:9px;min-width:0">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:#eef1f3;color:#46505c;flex:none">${isNote?noteIcon:plateIcon}</span>
+          <div style="min-width:0">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#9aa3ad">${isNote?'Not':'Plate'}</div>
+            <div style="font-size:14px;font-weight:700;color:#16202e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.title)}</div>
+          </div>
+        </div>
+        <button id="puClose" class="ico" style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;border:none;background:#f1f3f5;color:#6b7682;cursor:pointer;flex:none"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+      <div style="padding:18px">${bodyHtml}</div>
+    </div></div>`;
+  $('puovl').addEventListener('mousedown',ev=>{ if(ev.target.id==='puovl') closePopup(); });
+  $('puClose').onclick=closePopup;
 }
 
 function openPhoto(src){ state.photoSrc=src; renderLightbox(); }
@@ -411,11 +451,15 @@ function cardHTML(e){
         <button data-edit="${e.id}" class="ico" title="Düzenle" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;border:1px solid #e1e5ea;background:#fff;color:#6b7682;cursor:pointer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11 2.5 13.5 5 5.5 13l-3 .5.5-3 8-8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
         <button data-del="${e.id}" class="ico del" title="Sil" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;border:1px solid #e1e5ea;background:#fff;color:#6b7682;cursor:pointer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5M5 4.5 5.5 13a1 1 0 0 0 1 .9h3a1 1 0 0 0 1-.9L11 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>` : '';
-  const noteHtml = has(e.note) ? `<div style="margin-top:10px;font-size:11px;line-height:1.4;color:#6b7682;background:#f7f8f9;border-radius:7px;padding:6px 8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(e.note)}</div>` : '';
+  const dotI=(c)=>`<span style="width:6px;height:6px;border-radius:50%;background:${c};flex:none"></span>`;
+  const btns = `<div style="margin-top:10px;display:flex;gap:7px">
+        <button data-note="${e.id}" class="hbtn" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;border:1px solid #e1e5ea;background:#fff;color:#46505c;font-size:11px;font-weight:600;cursor:pointer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 2.5h7L13 5.5V13a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13V2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 7.5h5M5.5 10h3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>NOT${has(e.note)?dotI('var(--accent)'):''}</button>
+        <button data-plate="${e.id}" class="hbtn" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;border:1px solid #e1e5ea;background:#fff;color:#46505c;font-size:11px;font-weight:600;cursor:pointer"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="3.5" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 7h7M4.5 9.5h4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>PLATE${has(e.plate)?dotI('#2563eb'):''}</button>
+      </div>`;
   const injThumb = has(e.injectorPhoto)
     ? `<div data-photoinj="${e.id}" title="Büyütmek için tıklayın" style="position:relative;width:78px;flex:none;background:#eef1f3;cursor:zoom-in"><img src="${esc(e.injectorPhoto)}" alt="Enjektör" style="width:100%;height:100%;object-fit:cover;display:block">${magBadge}</div>`
     : `<div style="width:78px;flex:none;background:#eef1f3;display:flex;align-items:center;justify-content:center">${noInjSvg}</div>`;
-  const liqDisp=has(e.injLiquid)?e.injLiquid:'—', gasDisp=has(e.injGas)?e.injGas:'—';
+  const liqDisp=has(e.injLiquid)?e.injLiquid:'—', gasDisp=has(e.injGas)?e.injGas:'—', airDisp=has(e.injAir)?e.injAir:'—';
   const injBox = `<div style="margin-top:11px"><div style="display:flex;border:1px solid #e3e7eb;border-radius:9px;background:#fbfcfd;overflow:hidden">
         ${injThumb}
         <div style="flex:1;min-width:0;padding:7px 9px;display:flex;flex-direction:column;justify-content:center">
@@ -424,9 +468,10 @@ function cardHTML(e){
             ${has(e.fuel)?`<span style="font-size:8.5px;font-weight:700;color:#46505c;background:#e6eaee;padding:1px 6px;border-radius:5px">${esc(e.fuel)}</span>`:''}
             <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#2b3540;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(has(e.injector)?e.injector:'—')}</span>
           </div>
-          <div style="margin-top:6px;display:flex;gap:6px">
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
             <span style="display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:600;color:#1d6fa3;background:#e8f2f8;border-radius:5px;padding:2px 7px"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="M8 2s4 4.6 4 7.5A4 4 0 1 1 4 9.5C4 6.6 8 2 8 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>Sıvı ${esc(liqDisp)}</span>
             <span style="display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:600;color:#9a6a16;background:#f6efe2;border-radius:5px;padding:2px 7px"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="M8 14c2.8 0 4.5-1.9 4.5-4.3 0-3-2.5-4.7-2-7.7-2 .8-5 3.4-5 7C5.5 8.4 6 9 6 9s-.5-.4-.5-1.4C4.2 9 3.5 10.2 3.5 11.5 3.5 13 5.2 14 8 14Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>Gaz ${esc(gasDisp)}</span>
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:600;color:#4b7a52;background:#eaf3ec;border-radius:5px;padding:2px 7px"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="M2 6.5h7.5a2 2 0 1 0-2-2M2 9.5h9.5a2 2 0 1 1-2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>Hava ${esc(airDisp)}</span>
           </div>
         </div>
       </div></div>`;
@@ -456,7 +501,7 @@ function cardHTML(e){
         <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px 14px">
           ${field('Serial No',e.serial)}${field('ID No',e.idNo)}${field('Version',e.version,false)}${field('Project No',e.project)}${field('Actuator',e.actuator,false)}${field('Operation',opDisp)}
         </div>
-        ${noteHtml}
+        ${btns}
         ${injBox}
       </div>
 
@@ -470,7 +515,7 @@ function tableHTML(rows){
     {key:'status',label:'Durum',align:'left'},{key:'from',label:'From',align:'left'},{key:'type',label:'Type',align:'left'},
     {key:'serial',label:'Serial No',align:'left'},{key:'idNo',label:'ID No',align:'left'},{key:'injector',label:'Injector SN',align:'left'},
     {key:'project',label:'Project',align:'left'},{key:'actuator',label:'Actuator',align:'left'},{key:'fuel',label:'Fuel',align:'left'},
-    {key:'injLiquid',label:'Sıvı',align:'right'},{key:'injGas',label:'Gaz',align:'right'},{key:'version',label:'Version',align:'left'},
+    {key:'injLiquid',label:'Sıvı',align:'right'},{key:'injGas',label:'Gaz',align:'right'},{key:'injAir',label:'Hava',align:'right'},{key:'version',label:'Version',align:'left'},
     {key:'power',label:'Power',align:'right'},{key:'operation',label:'Operation',align:'right'},{key:'location',label:'Location',align:'left'},
     {key:'note',label:'Note',align:'left',min:true},
   ];
@@ -504,6 +549,7 @@ function tableHTML(rows){
       <td style="${tdBase};white-space:nowrap">${esc(e.fuel)}</td>
       <td style="${tdBase};font-family:'IBM Plex Mono',monospace;text-align:right;color:#46505c;white-space:nowrap">${esc(has(e.injLiquid)?e.injLiquid:'—')}</td>
       <td style="${tdBase};font-family:'IBM Plex Mono',monospace;text-align:right;color:#46505c;white-space:nowrap">${esc(has(e.injGas)?e.injGas:'—')}</td>
+      <td style="${tdBase};font-family:'IBM Plex Mono',monospace;text-align:right;color:#46505c;white-space:nowrap">${esc(has(e.injAir)?e.injAir:'—')}</td>
       <td style="${tdBase};white-space:nowrap">${esc(e.version)}</td>
       <td style="${tdBase};font-family:'IBM Plex Mono',monospace;text-align:right;color:#16202e;font-weight:600;white-space:nowrap">${esc(powerDisp)}</td>
       <td style="${tdBase};font-family:'IBM Plex Mono',monospace;text-align:right;color:#46505c;white-space:nowrap">${esc(opDisp)}</td>
@@ -534,9 +580,11 @@ const FIELDS=[
   {f:'operation',label:'Operation (çalışma saati)',mono:true,ph:'örn. 8145 veya n/a'},
   {f:'actuator',label:'Actuator',opts:['','Hidrolik','Elektrik'],optLabels:{'':'— Belirtilmedi —'}},
   {f:'enginePhoto',label:'Motor Fotoğrafı',photo:true},
+  {f:'plate',label:'Plate Fotoğrafı',photo:true},
   {divider:'Enjektör Bilgisi'},
   {f:'injLiquid',label:'Sıvı Hat Sayısı',mono:true,ph:'örn. 1'},
   {f:'injGas',label:'Gaz Hat Sayısı',mono:true,ph:'örn. 2'},
+  {f:'injAir',label:'Hava Hat Sayısı',mono:true,ph:'örn. 1 veya boş'},
   {f:'injectorPhoto',label:'Enjektör Fotoğrafı',photo:true},
   {f:'location',label:'Location',full:true,ph:'örn. Fabrika(Overhaul), Pyro, İstanbul…'},
   {f:'boroscope',label:'Boroskop Rapor Linki',ph:'https://… veya boş'},
@@ -677,7 +725,7 @@ $('addBtn').onclick=openAdd;
 $('exportBtn').onclick=exportExcel;
 $('clearBtn').onclick=clearFilters;
 $('logoutBtn').onclick=logout;
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(state.photoSrc) closePhoto(); else if(state.confirmId) cancelDelete(); else if(state.modalOpen) closeModal(); } });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ if(state.photoSrc) closePhoto(); else if(state.popup) closePopup(); else if(state.confirmId) cancelDelete(); else if(state.modalOpen) closeModal(); } });
 
 (function boot(){
   let s=null;
